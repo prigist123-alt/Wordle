@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Wordle</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #121213;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            letter-spacing: 2px;
+        }
+
+        #game-board {
+            display: grid;
+            grid-template-rows: repeat(7, 1fr);
+            grid-gap: 5px;
+            margin-bottom: 20px;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            grid-gap: 5px;
+        }
+
+        .tile {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #3a3a3c;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            box-sizing: border-box;
+        }
+
+        /* Status Colors */
+        .correct {
+            background-color: #538d4e !important;
+            border-color: #538d4e !important;
+        }
+        .present {
+            background-color: #b59f3b !important;
+            border-color: #b59f3b !important;
+        }
+        .absent {
+            background-color: #3a3a3c !important;
+            border-color: #3a3a3c !important;
+        }
+
+        #message {
+            height: 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ff4a4a;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SUPER WORDLE</h1>
+    <div id="game-board"></div>
+    <div id="message">Loading dictionary...</div>
+
+    <script>
+        const SECRET_WORD = "NIGGA".toUpperCase(); 
+        const WORD_LENGTH = SECRET_WORD.length;
+        const MAX_ATTEMPTS = 7; 
+        
+        let currentRow = 0;
+        let currentTile = 0;
+        let guesses = Array(MAX_ATTEMPTS).fill("").map(() => Array(WORD_LENGTH).fill(""));
+        let gameOver = false;
+        
+        // This will hold our dictionary words
+        let allowedWordsSet = new Set();
+        let dictionaryLoaded = false;
+
+        // Fetch dictionary of 5-letter words on load
+        fetch('https://raw.githubusercontent.com/tabatkins/wordle-list/main/words', { cache: "force-cache" })
+            .then(response => response.text())
+            .then(text => {
+                // Split text file by newlines and convert all words to uppercase
+                const wordsArray = text.split('\n').map(w => w.trim().toUpperCase());
+                // Using a Set makes checking if a word exists incredibly fast
+                allowedWordsSet = new Set(wordsArray);
+                dictionaryLoaded = true;
+                document.getElementById("message").innerText = ""; // Clear loading message
+            })
+            .catch(err => {
+                console.error("Failed to load dictionary:", err);
+                document.getElementById("message").innerText = "Error loading dictionary. Continuing anyway.";
+                dictionaryLoaded = true; // Let them play fallback mode if offline
+            });
+
+        // Dynamic board generation
+        const board = document.getElementById("game-board");
+        for (let r = 0; r < MAX_ATTEMPTS; r++) {
+            const rowDiv = document.createElement("div");
+            rowDiv.className = "row";
+            rowDiv.style.gridTemplateColumns = `repeat(${WORD_LENGTH}, 1fr)`;
+            for (let c = 0; c < WORD_LENGTH; c++) {
+                const tileDiv = document.createElement("div");
+                tileDiv.className = "tile";
+                tileDiv.id = `tile-${r}-${c}`;
+                rowDiv.appendChild(tileDiv);
+            }
+            board.appendChild(rowDiv);
+        }
+
+        // Listen for keyboard inputs
+        document.addEventListener("keydown", (e) => {
+            if (gameOver || !dictionaryLoaded) return; // Wait until dictionary is ready
+
+            const key = e.key;
+
+            if (key === "Enter") {
+                submitGuess();
+            } else if (key === "Backspace") {
+                deleteLetter();
+            } else if (/^[a-zA-Z]$/.test(key)) {
+                insertLetter(key.toUpperCase());
+            }
+        });
+
+        function insertLetter(letter) {
+            if (currentTile < WORD_LENGTH) {
+                guesses[currentRow][currentTile] = letter;
+                const tile = document.getElementById(`tile-${currentRow}-${currentTile}`);
+                tile.innerText = letter;
+                tile.style.borderColor = "#565758";
+                currentTile++;
+            }
+        }
+
+        function deleteLetter() {
+            if (currentTile > 0) {
+                currentTile--;
+                guesses[currentRow][currentTile] = "";
+                const tile = document.getElementById(`tile-${currentRow}-${currentTile}`);
+                tile.innerText = "";
+                tile.style.borderColor = "#3a3a3c";
+                document.getElementById("message").innerText = "";
+            }
+        }
+
+        function submitGuess() {
+            if (currentTile < WORD_LENGTH) {
+                document.getElementById("message").innerText = "Not enough letters!";
+                return;
+            }
+
+            const currentGuess = guesses[currentRow].join("");
+            
+            // NEW: Check if the word is in our dictionary list
+            if (allowedWordsSet.size > 0 && !allowedWordsSet.has(currentGuess) && currentGuess !== SECRET_WORD) {
+                document.getElementById("message").innerText = "Not in word list!";
+                return;
+            }
+
+            // Color logic
+            let targetLetterCounts = {};
+            for (let letter of SECRET_WORD) {
+                targetLetterCounts[letter] = (targetLetterCounts[letter] || 0) + 1;
+            }
+
+            // First pass: mark correct positions
+            for (let i = 0; i < WORD_LENGTH; i++) {
+                const tile = document.getElementById(`tile-${currentRow}-${i}`);
+                const letter = currentGuess[i];
+
+                if (letter === SECRET_WORD[i]) {
+                    tile.classList.add("correct");
+                    targetLetterCounts[letter]--;
+                }
+            }
+
+            // Second pass: mark present or absent positions
+            for (let i = 0; i < WORD_LENGTH; i++) {
+                const tile = document.getElementById(`tile-${currentRow}-${i}`);
+                const letter = currentGuess[i];
+
+                if (!tile.classList.contains("correct")) {
+                    if (SECRET_WORD.includes(letter) && targetLetterCounts[letter] > 0) {
+                        tile.classList.add("present");
+                        targetLetterCounts[letter]--;
+                    } else {
+                        tile.classList.add("absent");
+                    }
+                }
+            }
+
+            // Check Win / Lose
+            if (currentGuess === SECRET_WORD) {
+                document.getElementById("message").style.color = "#538d4e";
+                document.getElementById("message").innerText = "Splendid! You won!";
+                gameOver = true;
+                return;
+            }
+
+            if (currentRow >= MAX_ATTEMPTS - 1) {
+                document.getElementById("message").innerText = `Game Over! Word was: ${SECRET_WORD}`;
+                gameOver = true;
+                return;
+            }
+
+            // Move to next row
+            currentRow++;
+            currentTile = 0;
+        }
+    </script>
+</body>
+</html>
